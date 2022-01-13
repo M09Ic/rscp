@@ -40,7 +40,8 @@ It will retry indefinitely, until the file is successfully downloaded or uploade
 If the command is ended manually. You can use -offset flag to specify the block id of the breakpoint to continue the transfer
 
 example:
-`rscp -c ssh://root:root@123.123.123.123 -rm /home/bin -lf bin -download -offset 15` 
+
+`rscp -c ssh://root:root@123.123.123.123 -rf /home/bin -lf bin -download -offset 15` 
 
 ## TODO
 * add ssh proxy
