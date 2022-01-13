@@ -42,5 +42,10 @@ If the command is ended manually. You can use -offset flag to specify the block 
 example:
 `rscp -c ssh://root:root@123.123.123.123 -rm /home/bin -lf bin -download -offset 15` 
 
+## TODO
+* add ssh proxy
+* add socks proxy
+* add http/https proxy
+
 ## THANKS
 @https://github.com/PassingFoam
