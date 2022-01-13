@@ -62,17 +62,21 @@ func (s *sshConfig) Connect() error {
 		Auth: []ssh.AuthMethod{
 			s.auth,
 		},
-		Timeout:         time.Duration(30) * time.Second,
+		Timeout:         time.Duration(10) * time.Second,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 	s.client, err = ssh.Dial("tcp", s.target, config)
 	if err != nil {
+		fmt.Println(err.Error())
 		return err
 	}
 	return nil
 }
 
 func (s *sshConfig) Run(command string, logHistory bool) (string, error) {
+	if s.client == nil {
+		return "", errors.New("nil ssh client")
+	}
 	session, err := s.client.NewSession()
 	if err != nil {
 		return "", err
@@ -98,12 +102,12 @@ func (s *sshConfig) Run(command string, logHistory bool) (string, error) {
 var filemask = "1632002513"
 
 func (s *sshConfig) Upload(filename string, path string, offset int) {
+	var err error
 	ch := splitFile(filename, blockSize)
 
 	if path[len(path)-1] != '/' {
 		path += "/"
 	}
-
 	var i int
 	_, _ = s.Run("mkdir "+path, false)
 	var files []string
@@ -121,9 +125,12 @@ func (s *sshConfig) Upload(filename string, path string, offset int) {
 			md5sum, err = s.echo(block.content, tmpfile)
 			if err != nil {
 				fmt.Println(err.Error())
+				_ = s.Connect()
+				retry++
+				continue
 			}
 			if md5sum == block.md5sum {
-				fmt.Printf("block %d write to %s successfully \n", i, tmpfile)
+				fmt.Printf("block %d write to %s successfully, next block %d \n", i, tmpfile, i+1)
 				files = append(files, fmt.Sprintf("%s_%d", filemask, i))
 				break
 			} else {
@@ -135,7 +142,7 @@ func (s *sshConfig) Upload(filename string, path string, offset int) {
 	}
 
 	// 合并文件
-	_, err := s.Run(fmt.Sprintf("cd %s && cat %s > %s", path, strings.Join(files, " "), path+filename), false)
+	_, err = s.Run(fmt.Sprintf("cd %s && cat %s > %s", path, strings.Join(files, " "), path+filename), false)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -163,22 +170,6 @@ func (s *sshConfig) echo(content, tmpfile string) (string, error) {
 	return md5sum, nil
 }
 
-func (s *sshConfig) read(remotefile string, off int) ([]byte, error) {
-	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
-	output, err := s.Run(cmd, false)
-	if err != nil {
-		return []byte{}, nil
-	}
-	if !strings.Contains(output, "sangfor") {
-		return []byte{}, errors.New("read fail")
-	}
-	if output == "\nsangfor\nfinish\n" {
-		return []byte{}, io.EOF
-	}
-	outs := strings.Split(output, "\n")
-	return Base64Decode(outs[0]), nil
-}
-
 func (s sshConfig) Download(remoteFile, localFile string, offset int) {
 	if localFile == "" {
 		_, localFile = filepath.Split(remoteFile)
@@ -193,13 +184,15 @@ func (s sshConfig) Download(remoteFile, localFile string, offset int) {
 
 	writer := bufio.NewWriter(f)
 	for {
+		var err error
 		var retry int
 		content, err := s.read(remoteFile, offset)
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			fmt.Printf("%s, retry %d times", err.Error(), retry)
+			_ = s.Connect()
+			fmt.Printf("%s\n retry %d times\n", err.Error(), retry)
 			retry++
 			continue
 		}
@@ -209,11 +202,27 @@ func (s sshConfig) Download(remoteFile, localFile string, offset int) {
 			return
 		}
 		_ = f.Sync()
-		fmt.Printf("read %d block %d bytes successfully\n", offset, len(content))
+		fmt.Printf("read %d block %d bytes successfully, next block id: %d \n", offset, len(content), offset+1)
 		offset++
 		retry = 0
 	}
 	fmt.Printf("download %s successfully, write it to %s \n", remoteFile, localFile)
+}
+
+func (s *sshConfig) read(remotefile string, off int) ([]byte, error) {
+	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
+	output, err := s.Run(cmd, false)
+	if err != nil {
+		return []byte{}, err
+	}
+	if !strings.Contains(output, "sangfor") {
+		return []byte{}, errors.New("read fail")
+	}
+	if output == "\nsangfor\nfinish\n" {
+		return []byte{}, io.EOF
+	}
+	outs := strings.Split(output, "\n")
+	return Base64Decode(outs[0]), nil
 }
 
 type block struct {
