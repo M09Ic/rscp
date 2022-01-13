@@ -49,4 +49,4 @@ example:
 * add http/https proxy
 
 ## THANKS
-@https://github.com/PassingFoam
+[@passfoam](https://github.com/PassingFoam)
