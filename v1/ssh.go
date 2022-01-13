@@ -20,13 +20,12 @@ type publicKey struct {
 	key     []string
 }
 
-
 func NewSSH(connectStr, pkfile string) *sshConfig {
-	if !strings.HasPrefix(connectStr, "ssh://"){
+	if !strings.HasPrefix(connectStr, "ssh://") {
 		connectStr = "ssh://" + connectStr
 	}
 	url, err := url2.Parse(connectStr)
-	if err != nil{
+	if err != nil {
 		return nil
 	}
 
@@ -35,29 +34,28 @@ func NewSSH(connectStr, pkfile string) *sshConfig {
 	}
 	user := url.User
 	SSH.username = user.Username()
-	if pkfile != ""{
+	if pkfile != "" {
 		SSH.auth = pkAuth(pkfile)
-	}else {
+	} else {
 		password, ok := user.Password()
-		if ok{
+		if ok {
 			SSH.auth = ssh.Password(password)
-		}else{
+		} else {
 			return nil
 		}
 	}
 	return SSH
 }
 
-
 type sshConfig struct {
-	target 		string
-	auth 		ssh.AuthMethod
-	username    string
-	client      *ssh.Client
-	agents		[]ssh.AuthMethod
+	target   string
+	auth     ssh.AuthMethod
+	username string
+	client   *ssh.Client
+	agents   []ssh.AuthMethod
 }
 
-func (s *sshConfig) Connect() error  {
+func (s *sshConfig) Connect() error {
 	var err error
 	config := &ssh.ClientConfig{
 		User: s.username,
@@ -67,8 +65,8 @@ func (s *sshConfig) Connect() error  {
 		Timeout:         time.Duration(30) * time.Second,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-	s.client,err = ssh.Dial("tcp", s.target, config)
-	if err != nil{
+	s.client, err = ssh.Dial("tcp", s.target, config)
+	if err != nil {
 		return err
 	}
 	return nil
@@ -81,23 +79,24 @@ func (s *sshConfig) Run(command string, logHistory bool) (string, error) {
 	}
 	defer session.Close()
 
-	if !logHistory{
+	if !logHistory {
 		command = " " + command
 		//command += " && history -r "
 	}
 	command += " && echo sangfor ; echo finish "
-	output,err := session.CombinedOutput(command)
-	if err != nil{
+	output, err := session.CombinedOutput(command)
+	if err != nil {
 		return "", err
 	}
-	if bytes.Contains(output, []byte("finish")){
+	if bytes.Contains(output, []byte("finish")) {
 		return string(output), nil
-	}else{
+	} else {
 		return "", errors.New("no success")
 	}
 }
 
 var filemask = "1632002513"
+
 func (s *sshConfig) Upload(filename string, path string, offset int) {
 	ch := splitFile(filename, blockSize)
 
@@ -106,29 +105,29 @@ func (s *sshConfig) Upload(filename string, path string, offset int) {
 	}
 
 	var i int
-	_, _ = s.Run("mkdir "+ path, false)
+	_, _ = s.Run("mkdir "+path, false)
 	var files []string
 	tmpbase := path + filemask
-	for block := range ch{
+	for block := range ch {
 		var md5sum string
 		var err error
-		if i < offset{
+		if i < offset {
 			i++
 			continue
 		}
 		tmpfile := fmt.Sprintf("%s_%d", tmpbase, i)
-		for{
+		for {
 			var retry int
 			md5sum, err = s.echo(block.content, tmpfile)
-			if err != nil{
+			if err != nil {
 				fmt.Println(err.Error())
 			}
-			if md5sum == block.md5sum{
-				fmt.Printf("block %d write to %s successfully \n", i , tmpfile)
+			if md5sum == block.md5sum {
+				fmt.Printf("block %d write to %s successfully \n", i, tmpfile)
 				files = append(files, fmt.Sprintf("%s_%d", filemask, i))
 				break
-			}else{
-				fmt.Printf("uploaded checksum: %s, correert checksum %s, retry %d", md5sum,block.md5sum, retry)
+			} else {
+				fmt.Printf("uploaded checksum: %s, correert checksum %s, retry %d", md5sum, block.md5sum, retry)
 				retry++
 			}
 		}
@@ -136,59 +135,58 @@ func (s *sshConfig) Upload(filename string, path string, offset int) {
 	}
 
 	// 合并文件
-	_, err := s.Run(fmt.Sprintf("cd %s && cat %s > %s", path, strings.Join(files, " "), path + filename), false)
-	if err != nil{
+	_, err := s.Run(fmt.Sprintf("cd %s && cat %s > %s", path, strings.Join(files, " "), path+filename), false)
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 	fmt.Println("files merge successfully, final file: " + tmpbase + filename)
-	_, err = s.Run(fmt.Sprintf("rm -rf %s*",tmpbase), false)
-	if err != nil{
+	_, err = s.Run(fmt.Sprintf("rm -rf %s*", tmpbase), false)
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 	fmt.Println("rm all blocks successfully")
 }
 
-func (s *sshConfig) echo(content, tmpfile string) (string, error)  {
+func (s *sshConfig) echo(content, tmpfile string) (string, error) {
 	cmd := fmt.Sprintf("echo %s | base64 -d > %s && md5sum %s", content, tmpfile, tmpfile)
 	output, err := s.Run(cmd, false)
-	if err != nil{
+	if err != nil {
 		return "", nil
 	}
-	if !strings.Contains(output, "sangfor"){
+	if !strings.Contains(output, "sangfor") {
 		return "", errors.New("write fail")
 	}
-	outs := strings.Split(output," ")
+	outs := strings.Split(output, " ")
 	md5sum := outs[0]
 	return md5sum, nil
 }
 
 func (s *sshConfig) read(remotefile string, off int) ([]byte, error) {
-
-	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo" , remotefile, blockSize, off)
+	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
 	output, err := s.Run(cmd, false)
-	if err != nil{
+	if err != nil {
 		return []byte{}, nil
 	}
-	if !strings.Contains(output, "sangfor"){
+	if !strings.Contains(output, "sangfor") {
 		return []byte{}, errors.New("read fail")
 	}
-	if output == "\nsangfor\nfinish\n"{
+	if output == "\nsangfor\nfinish\n" {
 		return []byte{}, io.EOF
 	}
-	outs := strings.Split(output,"\n")
+	outs := strings.Split(output, "\n")
 	return Base64Decode(outs[0]), nil
 }
 
-func (s sshConfig) Download(remoteFile, localFile string, offset int)  {
-	if localFile != ""{
-		_, localFile = filepath.Split(localFile)
-	}else{
+func (s sshConfig) Download(remoteFile, localFile string, offset int) {
+	if localFile == "" {
+		_, localFile = filepath.Split(remoteFile)
+	} else {
 		return
 	}
 	f, err := fileInitialize(localFile)
-	if err != nil{
+	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
@@ -196,17 +194,17 @@ func (s sshConfig) Download(remoteFile, localFile string, offset int)  {
 	writer := bufio.NewWriter(f)
 	for {
 		var retry int
-		content,err := s.read(remoteFile, offset)
-		if err != nil{
-			if err == io.EOF{
+		content, err := s.read(remoteFile, offset)
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
-			fmt.Printf("%s, retry %d times",err.Error(), retry)
+			fmt.Printf("%s, retry %d times", err.Error(), retry)
 			retry++
 			continue
 		}
 		_, err = writer.Write(content)
-		if err != nil{
+		if err != nil {
 			fmt.Println(err.Error())
 			return
 		}
@@ -215,13 +213,13 @@ func (s sshConfig) Download(remoteFile, localFile string, offset int)  {
 		offset++
 		retry = 0
 	}
-	fmt.Printf("download %d successfully, write it to %s \n", remoteFile, localFile)
-}
-type block struct {
-	md5sum string
-	content string
+	fmt.Printf("download %s successfully, write it to %s \n", remoteFile, localFile)
 }
 
+type block struct {
+	md5sum  string
+	content string
+}
 
 func pkAuth(kPath string) ssh.AuthMethod {
 
@@ -236,4 +234,3 @@ func pkAuth(kPath string) ssh.AuthMethod {
 	}
 	return ssh.PublicKeys(signer)
 }
-

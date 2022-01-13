@@ -2,35 +2,72 @@ package v1
 
 import (
 	"flag"
+	"fmt"
+	"os"
 )
+
+type options struct {
+	connStr     string
+	keyPath     string
+	localfile   string
+	remotefile  string
+	blockoffset int
+	upload      bool
+	download    bool
+}
+
 var blockSize int
+
 func CMD() {
-	connectStr := flag.String("c", "" ,"")
-	keyPath := flag.String("i","","")
-	lfile := flag.String("lf", "", "")
-	//rfile := flag.String("rf", "", "")
-	rfile := flag.String("rf", "/tmp/164200825/","")
-	blockoffset := flag.Int("offset", 0 , "")
-	upload := flag.Bool("upload", false, "")
-	download := flag.Bool("download", false, "")
-	flag.IntVar(&blockSize, "b", 0, "")
+	var opt options
+	flag.StringVar(&opt.connStr, "c", "", "connect string, e.g ssh://root:root@1.1.1.1")
+	flag.StringVar(&opt.keyPath, "i", "", "private key file path")
+	flag.StringVar(&opt.localfile, "lf", "", "local file path")
+	flag.StringVar(&opt.remotefile, "rf", "/tmp/164200825/", "remote file path")
+	flag.IntVar(&opt.blockoffset, "offset", 0, "offset")
+	flag.BoolVar(&opt.upload, "upload", false, "upload mod")
+	flag.BoolVar(&opt.download, "download", false, "download mod")
+	flag.IntVar(&blockSize, "b", 0, "each block size (bytes)")
 	flag.Parse()
-	//source := "127.0.0.1"
+	opt.initOptions()
+
 	var err error
-	sshs := NewSSH(*connectStr, *keyPath)
+	sshs := NewSSH(opt.connStr, opt.keyPath)
 	err = sshs.Connect()
-	if err != nil{
+	if err != nil {
 		return
 	}
-	if *upload{
-		if blockSize == 0{
+
+	if opt.upload {
+		sshs.Upload(opt.localfile, opt.remotefile, opt.blockoffset)
+	} else if opt.download {
+		sshs.Download(opt.remotefile, opt.localfile, opt.blockoffset)
+	}
+}
+
+func (opt *options) initOptions() {
+	if blockSize == 0 {
+		if opt.upload {
 			blockSize = 20480
-		}
-		sshs.Upload(*lfile, *rfile, *blockoffset)
-	}else if *download{
-		if blockSize == 0{
+		} else if opt.download {
 			blockSize = 102400
+		} else {
+			fmt.Println("please set -download/-upload flags")
+			os.Exit(0)
 		}
-		sshs.Download(*rfile, *lfile, *blockoffset)
+	}
+
+	if opt.upload {
+		if opt.localfile == "" {
+			fmt.Println("please input upload file path")
+			os.Exit(0)
+		}
+	}
+
+	if opt.download {
+		if opt.remotefile == "/tmp/164200825/" {
+			fmt.Println("please input download file path")
+			os.Exit(0)
+		}
 	}
 }
