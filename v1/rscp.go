@@ -46,15 +46,9 @@ func CMD() {
 }
 
 func (opt *options) initOptions() {
-	if blockSize == 0 {
-		if opt.upload {
-			blockSize = 20480
-		} else if opt.download {
-			blockSize = 102400
-		} else {
-			fmt.Println("please set -download/-upload flags")
-			os.Exit(0)
-		}
+	if opt.connStr == "" {
+		fmt.Println("please input ssh url")
+		os.Exit(0)
 	}
 
 	if opt.upload {
@@ -70,4 +64,16 @@ func (opt *options) initOptions() {
 			os.Exit(0)
 		}
 	}
+
+	if blockSize == 0 {
+		if opt.upload {
+			blockSize = 20480
+		} else if opt.download {
+			blockSize = 102400
+		} else {
+			fmt.Println("please set -download/-upload flags")
+			os.Exit(0)
+		}
+	}
+
 }
