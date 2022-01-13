@@ -10,17 +10,13 @@ import (
 	"io/ioutil"
 	"log"
 	url2 "net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
-type publicKey struct {
-	keypath []string
-	key     []string
-}
-
-func NewSSH(connectStr, pkfile string) *sshConfig {
+func NewSSH(connectStr, pkfile string) *Rscp {
 	if !strings.HasPrefix(connectStr, "ssh://") {
 		connectStr = "ssh://" + connectStr
 	}
@@ -29,7 +25,7 @@ func NewSSH(connectStr, pkfile string) *sshConfig {
 		return nil
 	}
 
-	var SSH *sshConfig = &sshConfig{
+	var SSH *Rscp = &Rscp{
 		target: url.Host,
 	}
 	user := url.User
@@ -47,7 +43,7 @@ func NewSSH(connectStr, pkfile string) *sshConfig {
 	return SSH
 }
 
-type sshConfig struct {
+type Rscp struct {
 	target   string
 	auth     ssh.AuthMethod
 	username string
@@ -55,7 +51,7 @@ type sshConfig struct {
 	agents   []ssh.AuthMethod
 }
 
-func (s *sshConfig) Connect() error {
+func (s *Rscp) Connect() error {
 	var err error
 	config := &ssh.ClientConfig{
 		User: s.username,
@@ -73,7 +69,7 @@ func (s *sshConfig) Connect() error {
 	return nil
 }
 
-func (s *sshConfig) Run(command string, logHistory bool) (string, error) {
+func (s *Rscp) Run(command string, logHistory bool) (string, error) {
 	if s.client == nil {
 		return "", errors.New("nil ssh client")
 	}
@@ -101,7 +97,7 @@ func (s *sshConfig) Run(command string, logHistory bool) (string, error) {
 
 var filemask = "1632002513"
 
-func (s *sshConfig) Upload(filename string, path string, offset int) {
+func (s *Rscp) Upload(filename string, path string, offset int) {
 	var err error
 	ch := splitFile(filename, blockSize)
 
@@ -156,7 +152,7 @@ func (s *sshConfig) Upload(filename string, path string, offset int) {
 	fmt.Println("rm all blocks successfully")
 }
 
-func (s *sshConfig) echo(content, tmpfile string) (string, error) {
+func (s *Rscp) echo(content, tmpfile string) (string, error) {
 	cmd := fmt.Sprintf("echo %s | base64 -d > %s && md5sum %s", content, tmpfile, tmpfile)
 	output, err := s.Run(cmd, false)
 	if err != nil {
@@ -170,7 +166,7 @@ func (s *sshConfig) echo(content, tmpfile string) (string, error) {
 	return md5sum, nil
 }
 
-func (s sshConfig) Download(remoteFile, localFile string, offset int) {
+func (s Rscp) Download(remoteFile, localFile string, offset int) {
 	if localFile == "" {
 		_, localFile = filepath.Split(remoteFile)
 	} else {
@@ -209,7 +205,7 @@ func (s sshConfig) Download(remoteFile, localFile string, offset int) {
 	fmt.Printf("download %s successfully, write it to %s \n", remoteFile, localFile)
 }
 
-func (s *sshConfig) read(remotefile string, off int) ([]byte, error) {
+func (s *Rscp) read(remotefile string, off int) ([]byte, error) {
 	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
 	output, err := s.Run(cmd, false)
 	if err != nil {
@@ -225,11 +221,6 @@ func (s *sshConfig) read(remotefile string, off int) ([]byte, error) {
 	return Base64Decode(outs[0]), nil
 }
 
-type block struct {
-	md5sum  string
-	content string
-}
-
 func pkAuth(kPath string) ssh.AuthMethod {
 
 	key, err := ioutil.ReadFile(kPath)
@@ -242,4 +233,37 @@ func pkAuth(kPath string) ssh.AuthMethod {
 		log.Fatal("ssh key signer failed", err)
 	}
 	return ssh.PublicKeys(signer)
+}
+
+type block struct {
+	md5sum  string
+	content string
+}
+
+func splitFile(filename string, length int) chan block {
+	ch := make(chan block)
+	var err error
+	f, err := os.Open(filename)
+	if err != nil {
+		println(err.Error())
+		os.Exit(0)
+	}
+	go func() {
+		bs := make([]byte, length)
+		for {
+			n, err := f.Read(bs)
+			bs = bs[:n]
+			b := block{
+				md5sum:  Md5Hash(bs),
+				content: Base64Encode(bs),
+			}
+			if err == io.EOF {
+				close(ch)
+				break
+			} else {
+				ch <- b
+			}
+		}
+	}()
+	return ch
 }

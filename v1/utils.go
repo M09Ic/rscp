@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"io"
 	"os"
 )
 
@@ -49,39 +48,11 @@ func Md5Hash(raw []byte) string {
 	return hex.EncodeToString(m[:])
 }
 
-func splitFile(filename string, length int)chan block {
-	ch := make(chan block)
-	var err error
-	f, err := os.Open(filename)
-	if err != nil{
-		println(err.Error())
-		os.Exit(0)
-	}
-	go func() {
-		bs := make([]byte, length)
-		for{
-			n, err := f.Read(bs)
-			bs = bs[:n]
-			b := block{
-				md5sum:  Md5Hash(bs),
-				content: Base64Encode(bs),
-			}
-			if err == io.EOF{
-				close(ch)
-				break
-			}else{
-				ch <- b
-			}
-		}
-	}()
-	return ch
-}
-
-func fileSize(filename string)int  {
-	file,err:=os.Open(filename)
+func fileSize(filename string) int {
+	file, err := os.Open(filename)
 
 	if err == nil {
-		fi,_ := file.Stat()
+		fi, _ := file.Stat()
 		return int(fi.Size())
 	}
 	return 0
