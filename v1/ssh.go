@@ -25,6 +25,9 @@ func NewSSH(connectStr, pkfile string) *Rscp {
 		return nil
 	}
 
+	if pair := strings.Split(url.Host, ":"); len(pair) == 1 {
+		url.Host += ":22"
+	}
 	var SSH *Rscp = &Rscp{
 		target: url.Host,
 	}
@@ -88,19 +91,77 @@ func (s *Rscp) Run(command string, logHistory bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if bytes.Contains(output, []byte("finish")) {
-		return string(output), nil
-	} else {
-		return "", errors.New("no success")
+	if !bytes.Contains(output, []byte("sangfor")) {
+		return "", errors.New("command exec failed")
 	}
+	if bytes.Equal(output, []byte("\nsangfor\nfinish\n")) {
+		return "", io.EOF
+	}
+	return strings.Split(string(output), "\n")[0], nil
+}
+
+func (s *Rscp) md5(filename string) string {
+	md5, err := s.Run("md5sum "+filename, false)
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(md5, filename) {
+		return strings.Split(md5, " ")[0]
+	} else {
+		return ""
+	}
+
 }
 
 var filemask = "1632002513"
 
+func (s *Rscp) echo(content, tmpfile string) (string, error) {
+	cmd := fmt.Sprintf("echo %s | base64 -d > %s && md5sum %s", content, tmpfile, tmpfile)
+	output, err := s.Run(cmd, false)
+	if err != nil {
+		return "", nil
+	}
+	//if !strings.Contains(output, "sangfor") {
+	//	return "", errors.New("write fail")
+	//}
+	outs := strings.Split(output, " ")
+	md5sum := outs[0]
+	return md5sum, nil
+}
+
+func (s *Rscp) read(remotefile string, off int) ([]byte, error) {
+	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
+	output, err := s.Run(cmd, false)
+	if err != nil {
+		return []byte{}, err
+	}
+	//if !strings.Contains(output, "sangfor") {
+	//	return []byte{}, errors.New("read fail")
+	//}
+	//if output == "\nsangfor\nfinish\n" {
+	//	return []byte{}, io.EOF
+	//}
+	//outs := strings.Split(output, "\n")
+	return Base64Decode(output), nil
+}
+
+func pkAuth(kPath string) ssh.AuthMethod {
+
+	key, err := ioutil.ReadFile(kPath)
+	if err != nil {
+		log.Fatal("ssh key file read failed", err)
+	}
+	// Create the Signer for this private key.
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		log.Fatal("ssh key signer failed", err)
+	}
+	return ssh.PublicKeys(signer)
+}
 func (s *Rscp) Upload(filename string, path string, offset int) {
 	var err error
+	localfilemd5 := filename
 	ch := splitFile(filename, blockSize)
-
 	if path[len(path)-1] != '/' {
 		path += "/"
 	}
@@ -150,23 +211,15 @@ func (s *Rscp) Upload(filename string, path string, offset int) {
 		return
 	}
 	fmt.Println("rm all blocks successfully")
-}
 
-func (s *Rscp) echo(content, tmpfile string) (string, error) {
-	cmd := fmt.Sprintf("echo %s | base64 -d > %s && md5sum %s", content, tmpfile, tmpfile)
-	output, err := s.Run(cmd, false)
-	if err != nil {
-		return "", nil
-	}
-	if !strings.Contains(output, "sangfor") {
-		return "", errors.New("write fail")
-	}
-	outs := strings.Split(output, " ")
-	md5sum := outs[0]
-	return md5sum, nil
+	remotefilemd5 := s.md5(filepath.Join(tmpbase, filename))
+	fmt.Printf("local file md5: %s, remote file md5:%s, check status: %t\n", localfilemd5, remotefilemd5, localfilemd5 == remotefilemd5)
+
 }
 
 func (s Rscp) Download(remoteFile, localFile string, offset int) {
+	remotefilemd5 := s.md5(remoteFile)
+	fmt.Println("remote file md5: " + remotefilemd5)
 	if localFile == "" {
 		_, localFile = filepath.Split(remoteFile)
 	} else {
@@ -188,8 +241,8 @@ func (s Rscp) Download(remoteFile, localFile string, offset int) {
 				break
 			}
 			_ = s.Connect()
-			fmt.Printf("%s\n retry %d times\n", err.Error(), retry)
 			retry++
+			fmt.Printf("%s, retry %d times\n", err.Error(), retry)
 			continue
 		}
 		_, err = writer.Write(content)
@@ -201,38 +254,12 @@ func (s Rscp) Download(remoteFile, localFile string, offset int) {
 		fmt.Printf("read %d block %d bytes successfully, next block id: %d \n", offset, len(content), offset+1)
 		offset++
 		retry = 0
+		time.Sleep(1000)
 	}
-	fmt.Printf("download %s successfully, write it to %s \n", remoteFile, localFile)
-}
+	localfilemd5 := fileMd5(localFile)
 
-func (s *Rscp) read(remotefile string, off int) ([]byte, error) {
-	cmd := fmt.Sprintf("dd if=%s bs=%d count=1 skip=%d 2>/dev/null  | base64 -w 0 && echo", remotefile, blockSize, off)
-	output, err := s.Run(cmd, false)
-	if err != nil {
-		return []byte{}, err
-	}
-	if !strings.Contains(output, "sangfor") {
-		return []byte{}, errors.New("read fail")
-	}
-	if output == "\nsangfor\nfinish\n" {
-		return []byte{}, io.EOF
-	}
-	outs := strings.Split(output, "\n")
-	return Base64Decode(outs[0]), nil
-}
-
-func pkAuth(kPath string) ssh.AuthMethod {
-
-	key, err := ioutil.ReadFile(kPath)
-	if err != nil {
-		log.Fatal("ssh key file read failed", err)
-	}
-	// Create the Signer for this private key.
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil {
-		log.Fatal("ssh key signer failed", err)
-	}
-	return ssh.PublicKeys(signer)
+	fmt.Printf("download %s successfully, save to %s \n", remoteFile, localFile)
+	fmt.Printf("local file md5: %s, remote file md5: %s, check status: %t\n", localfilemd5, remotefilemd5, localfilemd5 == remotefilemd5)
 }
 
 type block struct {

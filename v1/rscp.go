@@ -37,6 +37,7 @@ func CMD() {
 	if err != nil {
 		return
 	}
+	fmt.Println("ssh connect successfully")
 
 	if opt.upload {
 		sshs.Upload(opt.localfile, opt.remotefile, opt.blockoffset)
@@ -75,5 +76,4 @@ func (opt *options) initOptions() {
 			os.Exit(0)
 		}
 	}
-
 }

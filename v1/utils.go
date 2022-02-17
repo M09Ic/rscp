@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io/ioutil"
 	"os"
 )
 
@@ -56,4 +58,18 @@ func fileSize(filename string) int {
 		return int(fi.Size())
 	}
 	return 0
+}
+
+func fileMd5(filename string) string {
+	file, err := os.Open(filename)
+	defer file.Close()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+
+	return Md5Hash(content)
 }
